@@ -1,4 +1,4 @@
-Problem Statement:
+*Problem Statement*:
 Students in modern academic environments struggle with fragmented support systems, difficulty in managing self-directed study schedules, and lack of immediate assistance during off-hours. Traditional rule-based chatbots only answer static FAQs and fail to execute actions.
 Key Features:
      Goal-Driven Autonomy: Executes end-to-end tasks (e.g., creating a multi-week study plan, calculating GPAs, and updating calendar events) without step-by-step user prompting.
