@@ -1,0 +1,127 @@
+import os
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_community.vectorstores import Chroma
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# Set your API key
+os.environ["OPENAI_API_KEY"] = "your-openai-api-key-here"
+
+# ---------------------------------------------------------
+# 1. RAG SETUP: Load College Data (Regulations, Syllabus, Notes)
+# ---------------------------------------------------------
+# Mocking college documents (in production, load PDFs/TXT using DirectoryLoader)
+raw_documents = [
+    "Regulation 2024: Students must maintain a minimum of 75% attendance to be eligible for end-semester exams.",
+    "Syllabus CSE302 (AI & ML): Covers RAG architecture, vector databases, LangChain, fine-tuning, and LLM evaluation.",
+    "FAQ Library: The digital library is open from 8:00 AM to 10:00 PM on weekdays and 9:00 AM to 5:00 PM on Saturdays.",
+    "Notes Database: Mid-term exams for core subjects start on the 3rd week of October. Calculators are permitted for quantitative exams."
+]
+
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+docs = text_splitter.create_documents(raw_documents)
+
+# Initialize embeddings and vector store
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+vectorstore = Chroma.from_documents(docs, embeddings)
+retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
+
+# ---------------------------------------------------------
+# 2. TOOLS SETUP: Additional Dynamic Capabilities
+# ---------------------------------------------------------
+@tool
+def calculate_attendance(total_classes: int, classes_attended: int) -> str:
+    """Calculates the exact attendance percentage and tells if the student meets the 75% college rule."""
+    percentage = (classes_attended / total_classes) * 100
+    eligible = percentage >= 75
+    status = "eligible" if eligible else "NOT eligible (shortage of attendance)"
+    return f"Your attendance is {percentage:.2f}%. You are {status} for exams."
+
+@tool
+def get_exam_countdown(subject_code: str) -> str:
+    """Returns dynamic schedule information or countdown for specific college exams."""
+    # Placeholder logic for dynamic tool interaction
+    return f"Exam schedule for {subject_code}: Mid-terms begin October 20th. Check the portal for seating arrangements."
+
+tools = [calculate_attendance, get_exam_countdown]
+
+# ---------------------------------------------------------
+# 3. MEMORY & AGENT PIPELINE SETUP
+# ---------------------------------------------------------
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+# Conversation memory storage
+chat_history = []
+
+def student_assistant_query(user_query: str):
+    """Processes student query using RAG, Tools, and persistent Memory context."""
+    global chat_history
+    
+    # Contextualize query based on memory history
+    contextualize_q_system_prompt = (
+        "Given a chat history and the latest user question "
+        "which might reference context in the chat history, "
+        "formulate a standalone question which can be understood "
+        "without the chat history. Do NOT answer the question, "
+        "just reformulate it if needed and otherwise return it as is."
+    )
+    contextualize_q_prompt = ChatPromptTemplate.from_messages([
+        ("system", contextualize_q_system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ])
+    
+    # Retrieve relevant documents via RAG
+    retrieved_docs = retriever.invoke(user_query)
+    rag_context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+    
+    # Simple tool matching logic (or use LangGraph / LangChain AgentExecutor)
+    tool_output = ""
+    if "attendance" in user_query.lower():
+        # Example triggering tool programmatically if needed
+        tool_output = calculate_attendance.invoke({"total_classes": 60, "classes_attended": 42})
+    
+    # Construct final prompt combining RAG context, Tools, and History
+    qa_system_prompt = (
+        "You are an AI Student Support Assistant for the college. Answer questions accurately "
+        "using the provided college regulations, syllabus, notes, and tool outputs below.\n\n"
+        "Retrieved Context:\n{rag_context}\n\n"
+        "Tool Results:\n{tool_output}"
+    )
+    
+    qa_prompt = ChatPromptTemplate.from_messages([
+        ("system", qa_system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ])
+    
+    # Execute chain
+    chain = qa_prompt | llm
+    response = chain.invoke({
+        "rag_context": rag_context,
+        "tool_output": tool_output,
+        "chat_history": chat_history,
+        "input": user_query
+    })
+    
+    # Update memory history
+    chat_history.extend([
+        HumanMessage(content=user_query),
+        AIMessage(content=response.content)
+    ])
+    
+    return response.content
+
+# ---------------------------------------------------------
+# Example Execution
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    print("--- Query 1: RAG lookup ---")
+    print(student_assistant_query("What is the minimum attendance required according to regulations?"))
+    
+    print("\n--- Query 2: Tool Integration & Memory Test ---")
+    print(student_assistant_query("I attended 42 classes out of 60 total classes. Am I eligible? Also, when do mid-terms start?"))
