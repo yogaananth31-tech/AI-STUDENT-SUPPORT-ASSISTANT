@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Student Support Assistant</title>
+    <!-- Link to the CSS styling provided earlier -->
+    <link rel="stylesheet" href="style.css"> 
+</head>
+<body>
+
+    <div class="chat-container">
+        <!-- Header -->
+        <div class="chat-header">
+            <div>
+                <h2>College AI Support Assistant</h2>
+                <p>Ask about regulations, syllabus, FAQs & notes</p>
+            </div>
+        </div>
+
+        <!-- Messages Area -->
+        <div id="chat-messages" class="chat-messages">
+            <div class="message bot">
+                Hello! I am your AI Student Support Assistant. How can I help you with your college regulations, syllabus, or notes today?
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <form id="chat-form" class="chat-input-area">
+            <input 
+                type="text" 
+                id="user-input" 
+                placeholder="Type your question here (e.g., attendance rule)..." 
+                autocomplete="off" 
+                required
+            >
+            <button type="submit">Send</button>
+        </form>
+    </div>
+
+    <!-- Frontend Script Logic -->
+    <script>
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+        const chatMessages = document.getElementById('chat-messages');
+
+        // Replace with your running backend URL (e.g., Python FastAPI/Flask or Node.js backend)
+        const BACKEND_URL = 'http://localhost:5000/api/chat'; 
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const messageText = userInput.value.trim();
+            if (!messageText) return;
+
+            // 1. Append User Message to UI
+            appendMessage(messageText, 'user');
+            userInput.value = '';
+            
+            // Auto scroll to bottom
+            scrollToBottom();
+
+            // 2. Add temporary "Thinking..." bot message
+            const loadingId = appendMessage('Thinking...', 'bot loading');
+
+            try {
+                // 3. Send request to backend (RAG + Tools + Memory enabled backend)
+                const response = await fetch(BACKEND_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: messageText })
+                });
+
+                const data = await response.json();
+                
+                // Remove loading message
+                document.getElementById(loadingId).remove();
+
+                if (response.ok) {
+                    appendMessage(data.reply || data.message, 'bot');
+                } else {
+                    appendMessage('Sorry, I encountered an error connecting to the support system.', 'bot');
+                }
+            } catch (error) {
+                // Remove loading message
+                document.getElementById(loadingId)?.remove();
+                console.error('Network Error:', error);
+                appendMessage('Error: Could not reach the backend server. Make sure it is running.', 'bot');
+            }
+
+            scrollToBottom();
+        });
+
+        function appendMessage(text, sender) {
+            const messageDiv = document.createElement('div');
+            const messageId = 'msg-' + Date.now();
+            messageDiv.id = messageId;
+            messageDiv.className = `message ${sender}`;
+            messageDiv.textContent = text;
+            chatMessages.appendChild(messageDiv);
+            return messageId;
+        }
+
+        function scrollToBottom() {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+    </script>
+</body>
+</html>
